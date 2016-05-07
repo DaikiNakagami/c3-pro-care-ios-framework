@@ -1,0 +1,6 @@
+[submodule "CareKit"]
+	path = CareKit
+	url = https://github.com/carekit-apple/CareKit.git
+[submodule "Swift-SMART"]
+	path = Swift-SMART
+	url = https://github.com/smart-on-fhir/Swift-SMART.git
