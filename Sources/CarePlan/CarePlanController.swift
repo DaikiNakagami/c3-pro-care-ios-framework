@@ -23,7 +23,7 @@ import SMART
 import CareKit
 
 
-public class CarePlanController {
+open class CarePlanController {
 	
 	public let plan: CarePlan
 	
@@ -35,23 +35,23 @@ public class CarePlanController {
 	
 	// Accessing individual parts of the plan
 	
-	public func subjectOrGroup(callback: ((patient: Patient?, group: Group?, reference: Reference?) -> Void)) {
+	open func subjectOrGroup(_ callback: @escaping ((_ patient: Patient?, _ group: Group?, _ reference: Reference?) -> Void)) {
 		guard let subject = plan.subject else {
-			callback(patient: nil, group: nil, reference: nil)
+			callback(nil, nil, nil)
 			return
 		}
 		subject.resolve(Resource.self) { subject in
-			dispatch_async(dispatch_get_main_queue()) {
+			DispatchQueue.main.async() {
 				let patient = subject as? Patient
 				let group = subject as? Group
-				callback(patient: patient, group: group, reference: self.plan.subject)
+				callback(patient, group, self.plan.subject)
 			}
 		}
 	}
 	
-	public func planParticipants(callback: ((participants: [OCKContact]?) -> Void)) {
-		guard let participants = plan.participant where participants.count > 0 else {
-			callback(participants: nil)
+	open func planParticipants(_ callback: @escaping ((_ participants: [OCKContact]?) -> Void)) {
+		guard let participants = plan.participant , participants.count > 0 else {
+			callback(nil)
 			return
 		}
 		
@@ -59,10 +59,10 @@ public class CarePlanController {
 		var idx = 0
 		
 		// loop all participants and resolve, if necessary
-		let group = dispatch_group_create()
+		let group = DispatchGroup()
 		for participant in participants {
 			if let member = participant.member {
-				dispatch_group_enter(group)
+				group.enter()
 				member.resolve(Resource.self) { resource in
 					var role = participant.role?.text ?? participant.role?.coding?[0].code
 					var name: String?
@@ -78,7 +78,7 @@ public class CarePlanController {
 						monogram = HumanName.c3_monogram(practitioner.name) ?? "PR"
 						phone = ContactPoint.c3_phone(practitioner.telecom)
 						email = ContactPoint.c3_email(practitioner.telecom)
-						color = UIColor.orangeColor()
+						color = UIColor.orange
 						image = nil
 					}
 					else if let person = resource as? RelatedPerson {
@@ -86,14 +86,14 @@ public class CarePlanController {
 						monogram = HumanName.c3_monogram(person.name) ?? "PE"
 						phone = ContactPoint.c3_phone(person.telecom)
 						email = ContactPoint.c3_email(person.telecom)
-						color = UIColor.redColor()
+						color = UIColor.red
 					}
 					else if let patient = resource as? Patient {
 						name = HumanName.c3_humanName(patient.name) ?? "Unnamed Patient"
 						monogram = HumanName.c3_monogram(patient.name) ?? "PA"
 						phone = ContactPoint.c3_phone(patient.telecom)
 						email = ContactPoint.c3_email(patient.telecom)
-						color = UIColor.greenColor()
+						color = UIColor.green
 					}
 					else if let organization = resource as? Organization {
 						name = organization.name ?? "Unnamed Organization"
@@ -102,7 +102,7 @@ public class CarePlanController {
 						email = ContactPoint.c3_email(organization.telecom)
 					}
 					
-					let contact = OCKContact(contactType: OCKContactType.CareTeam,
+					let contact = OCKContact(contactType: OCKContactType.careTeam,
 					                         name: name ?? "Unnamed Participant",
 					                         relation: role ?? "Participant",
 					                         tintColor: color,
@@ -111,8 +111,8 @@ public class CarePlanController {
 					                         emailAddress: email,
 					                         monogram: monogram ?? "PT",
 					                         image: image)
-					list.insert(contact, atIndex: min(idx, list.count))
-					dispatch_group_leave(group)
+					list.insert(contact, at: min(idx, list.count))
+					group.leave()
 				}
 			}
 			else {
@@ -121,14 +121,14 @@ public class CarePlanController {
 			idx += 1
 		}
 		
-		dispatch_group_notify(group, dispatch_get_main_queue()) {
-			callback(participants: list)
+		group.notify(queue: DispatchQueue.main) {
+			callback(list)
 		}
 	}
 	
-	public func activities(callback: ((activities: [OCKCarePlanActivity]?) -> Void)) {
-		guard let activities = plan.activity where activities.count > 0 else {
-			callback(activities: nil)
+	open func activities(_ callback: @escaping ((_ activities: [OCKCarePlanActivity]?) -> Void)) {
+		guard let activities = plan.activity , activities.count > 0 else {
+			callback(nil)
 			return
 		}
 		
@@ -136,10 +136,10 @@ public class CarePlanController {
 		var idx = 0
 		
 		// loop all activity details and references
-		let group = dispatch_group_create()
+		let group = DispatchGroup()
 		for activity in activities {
 			if let reference = activity.reference {
-				dispatch_group_enter(group)
+				group.enter()
 				
 				// resolved activity reference
 				reference.resolve(Resource.self) { resource in
@@ -154,7 +154,7 @@ public class CarePlanController {
 							var coding = item.code?.coding?.first
 							if let codes = item.code?.coding {
 								for code in codes {
-									if "http://loinc.org" == code.system {
+									if "http://loinc.org" == code.system?.absoluteString ?? "x" {
 										coding = code
 										break
 									}
@@ -173,11 +173,11 @@ public class CarePlanController {
 						NSLog("Unsupported activity resource: \(resource)")
 					}
 					
-					let components = NSCalendar.currentCalendar().componentsInTimeZone(NSTimeZone.localTimeZone(), fromDate: NSDate())
-					let schedule = OCKCareSchedule.dailyScheduleWithStartDate(components, occurrencesPerDay: 1)
+					let components = Calendar.current.dateComponents(in: TimeZone.current, from: Date())
+					let schedule = OCKCareSchedule.dailySchedule(withStartDate: components, occurrencesPerDay: 1)
 					
-					let activity = OCKCarePlanActivity.interventionWithIdentifier(
-						resource?.id ?? "unidentified-activity",
+					let activity = OCKCarePlanActivity.intervention(
+						withIdentifier: resource?.id ?? "unidentified-activity",
 						groupIdentifier: nil,
 						title: title,
 						text: text,
@@ -186,8 +186,8 @@ public class CarePlanController {
 						imageURL: nil,
 						schedule: schedule,
 						userInfo: nil)
-					list.insert(activity, atIndex: min(idx, list.count))
-					dispatch_group_leave(group)
+					list.insert(activity, at: min(idx, list.count))
+					group.leave()
 				}
 			}
 			
@@ -197,11 +197,11 @@ public class CarePlanController {
 				var text: String?
 				var instructions: String?
 				
-				let components = NSCalendar.currentCalendar().componentsInTimeZone(NSTimeZone.localTimeZone(), fromDate: NSDate())
-				let schedule = OCKCareSchedule.dailyScheduleWithStartDate(components, occurrencesPerDay: 1)
+				let components = Calendar.current.dateComponents(in: TimeZone.current, from: Date())
+				let schedule = OCKCareSchedule.dailySchedule(withStartDate: components, occurrencesPerDay: 1)
 				
-				let activity = OCKCarePlanActivity.interventionWithIdentifier(
-					"detail-\(idx)",
+				let activity = OCKCarePlanActivity.intervention(
+					withIdentifier: "detail-\(idx)",
 					groupIdentifier: nil,
 					title: title,
 					text: text,
@@ -210,7 +210,7 @@ public class CarePlanController {
 					imageURL: nil,
 					schedule: schedule,
 					userInfo: nil)
-				list.insert(activity, atIndex: min(idx, list.count))
+				list.insert(activity, at: min(idx, list.count))
 			}
 			else {
 				fhir_warn("CarePlan activity \(activity) does neither have a reference nor detail")
@@ -219,12 +219,12 @@ public class CarePlanController {
 		}
 		
 		// all resolved
-		dispatch_group_notify(group, dispatch_get_main_queue()) {
-			callback(activities: list)
+		group.notify(queue: DispatchQueue.main) {
+			callback(list)
 		}
 	}
 	
-	public func activityWithId(id: String) -> (CarePlanActivity, Resource?)? {
+	open func activityWithId(_ id: String) -> (CarePlanActivity, Resource?)? {
 		guard let activities = plan.activity else {
 			return nil
 		}
@@ -253,8 +253,8 @@ public class CarePlanController {
 
 extension HumanName {
 	
-	public class func c3_humanName(names: [HumanName]?) -> String? {
-		guard let names = names where names.count > 0 else {
+	public class func c3_humanName(_ names: [HumanName]?) -> String? {
+		guard let names = names , names.count > 0 else {
 			return nil
 		}
 		
@@ -264,10 +264,10 @@ extension HumanName {
 				nms.append(name)
 			}
 		}
-		return (nms.count > 0) ? nms.joinWithSeparator(", ") : nil
+		return (nms.count > 0) ? nms.joined(separator: ", ") : nil
 	}
 	
-	public class func c3_humanName(name: HumanName?) -> String? {
+	public class func c3_humanName(_ name: HumanName?) -> String? {
 		guard let name = name else {
 			return nil
 		}
@@ -278,10 +278,10 @@ extension HumanName {
 		name.family?.forEach() { nm.append($0) }
 		name.suffix?.forEach() { nm.append($0) }
 		
-		return (nm.count > 0) ? nm.joinWithSeparator(" ") : name.text
+		return (nm.count > 0) ? nm.joined(separator: " ") : name.text
 	}
 	
-	public class func c3_monogram(names: [HumanName]?) -> String? {
+	public class func c3_monogram(_ names: [HumanName]?) -> String? {
 		guard let names = names else {
 			return nil
 		}
@@ -295,7 +295,7 @@ extension HumanName {
 		return nil;
 	}
 	
-	public class func c3_monogram(name: HumanName?) -> String? {
+	public class func c3_monogram(_ name: HumanName?) -> String? {
 		guard let name = name else {
 			return nil
 		}
@@ -303,23 +303,23 @@ extension HumanName {
 		var initials = [String]()
 		name.given?.forEach() {
 			if $0.characters.count > 0 {
-				initials.append($0[$0.startIndex..<$0.startIndex.advancedBy(1)])
+				initials.append("\($0.characters.first)")
 			}
 		}
 		name.family?.forEach() {
 			if $0.characters.count > 0 {
-				initials.append($0[$0.startIndex..<$0.startIndex.advancedBy(1)])
+				initials.append("\($0.characters.first)")
 			}
 		}
 		
-		return (initials.count > 0) ? initials.joinWithSeparator("") : nil;
+		return (initials.count > 0) ? initials.joined(separator: "") : nil;
 	}
 }
 
 
 extension ContactPoint {
 	
-	public class func c3_phone(contacts: [ContactPoint]?, use: String? = nil) -> String? {
+	public class func c3_phone(_ contacts: [ContactPoint]?, use: String? = nil) -> String? {
 		guard let contacts = contacts else {
 			return nil
 		}
@@ -332,7 +332,7 @@ extension ContactPoint {
 		return nil
 	}
 	
-	public class func c3_email(contacts: [ContactPoint]?, use: String? = nil) -> String? {
+	public class func c3_email(_ contacts: [ContactPoint]?, use: String? = nil) -> String? {
 		guard let contacts = contacts else {
 			return nil
 		}
